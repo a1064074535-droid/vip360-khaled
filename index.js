@@ -894,6 +894,8 @@ const initializeClient = () => {
                                 
                                 console.log(`Sending chunk ${i/chunkSize + 1}...`);
                                 await message.reply(jobsMsg);
+                                // Small delay between chunks to ensure order
+                                await new Promise(resolve => setTimeout(resolve, 1000));
                             }
                         } catch (e) {
                             console.error('Error reading jobs file or sending message:', e);
