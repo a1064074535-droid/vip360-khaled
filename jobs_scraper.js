@@ -194,6 +194,8 @@ async function scrapeJobs() {
 }
 
 // Allow running directly
-// if (require.main === module) {
+if (require.main === module) {
     scrapeJobs();
-// }
+}
+
+module.exports = { scrapeJobs, JOBS_FILE };

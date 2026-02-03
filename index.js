@@ -1,4 +1,4 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const express = require('express');
 const fs = require('fs');
@@ -9,7 +9,7 @@ const { initSendPulse, addContact } = require('./sendpulse-service');
 const { processCommand } = require('./agent_brain');
 require('dotenv').config();
 
-const SITE_URL = 'https://bit.ly/4sKzlZP';
+const SITE_URL = 'https://vip360-khaled.netlify.app/';
 
 // Admin Configuration
 const ADMIN_NUMBER = '966545888559@c.us';
@@ -399,6 +399,21 @@ app.delete('/tiktok/delete/:date/:index', (req, res) => {
 });
 
 
+app.get('/send-menu', async (req, res) => {
+    const target = req.query.number ? `${req.query.number}@c.us` : ADMIN_NUMBER;
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            const menuMsg = `مرحباً بك في المكتبة الرقمية 📚\n\n*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+            await client.sendMessage(target, menuMsg);
+            res.send(`✅ Menu sent successfully to ${target}`);
+        } catch (e) {
+            res.status(500).send('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
 app.get('/test-message', async (req, res) => {
     if (client && status === 'Connected') {
         try {
@@ -450,7 +465,7 @@ app.get('/broadcast-services', async (req, res) => {
     if (client && status === 'Connected') {
         const count = parseInt(req.query.count) || 10;
         try {
-            const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`;
+            const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
             
             const chats = await client.getChats();
             const validChats = chats.filter(c => c.id.server === 'c.us' || c.id.server === 'g.us');
@@ -477,6 +492,406 @@ app.get('/broadcast-services', async (req, res) => {
     }
 });
 
+app.get('/broadcast-jobs', async (req, res) => {
+    if (client && status === 'Connected') {
+        const count = parseInt(req.query.count) || 50;
+        if (!fs.existsSync(JOBS_FILE)) {
+             return res.status(404).send('Jobs file not found. Please scrape first.');
+        }
+        
+        try {
+            const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+            const chats = await client.getChats();
+            // Filter for private chats only (c.us) to avoid spamming groups
+            const validChats = chats.filter(c => c.id.server === 'c.us').slice(0, count);
+            
+            res.write(`Starting broadcast of ${jobs.length} jobs to ${validChats.length} chats...\n`);
+
+            let sentCount = 0;
+            for (const chat of validChats) {
+                res.write(`Sending to ${chat.name || chat.id.user}...\n`);
+                
+                // Chunk logic
+                const chunkSize = 10;
+                for (let i = 0; i < jobs.length; i += chunkSize) {
+                    const chunk = jobs.slice(i, i + chunkSize);
+                    let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية:*\n\n" : "";
+                    chunk.forEach((job, index) => {
+                         jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                    });
+                    
+                    if (i + chunkSize >= jobs.length) {
+                        jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                    }
+                    
+                    await chat.sendMessage(jobsMsg);
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay between chunks
+                }
+                
+                sentCount++;
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 2s delay between users
+            }
+            
+            res.end(`Broadcast completed to ${sentCount} users.`);
+        } catch (e) {
+            if (!res.headersSent) res.status(500).send('Error: ' + e.message);
+            else res.end('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready. Status: ' + status);
+    }
+});
+
+
+app.get('/post-daily-status', async (req, res) => {
+    if (client && (status === 'Connected' || status === 'Authenticated')) {
+        try {
+            const statusImagePath = path.join(__dirname, 'daily_status.jpg');
+            if (fs.existsSync(statusImagePath)) {
+                const media = MessageMedia.fromFilePath(statusImagePath);
+                const caption = `وظائف يومية مجانية! 📢\nأكثر من 40 وظيفة يومياً تصلك على جوالك.\n\nفقط أرسل رقم *16* للاشتراك ✅\n\nالمحتوى:\n- وظائف حكومي وشركات\n- تدريب منتهي بالتوظيف\n- دورات مجانية`;
+                await client.sendMessage('status@broadcast', media, { caption: caption });
+                res.send('✅ Daily status image posted successfully to status@broadcast');
+            } else {
+                const statusText = `مرحباً بك في المكتبة الرقمية 📚\n\nقائمة الخدمات المتاحة:\n\n${servicesList}\n\nلطلب أي خدمة، يرجى الرد برقم الخدمة.`;
+                await client.sendMessage('status@broadcast', statusText);
+                res.send('✅ Daily status text posted successfully to status@broadcast (Image not found)');
+            }
+        } catch (e) {
+            console.error('❌ Error posting status:', e);
+            res.status(500).send('Error posting status: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready. Status: ' + status);
+    }
+});
+
+app.get('/test-message', async (req, res) => {
+    const target = req.query.number ? `${req.query.number}@c.us` : ADMIN_NUMBER;
+    const text = req.query.text || '✅ رسالة اختبار من البوت';
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            await client.sendMessage(target, text);
+            res.send(`✅ Message sent successfully to ${target}`);
+        } catch (e) {
+            res.status(500).send('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
+app.get('/test-send-jobs', async (req, res) => {
+    const target = req.query.number ? `${req.query.number}@c.us` : ADMIN_NUMBER;
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            if (fs.existsSync(JOBS_FILE)) {
+                const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+                const chunkSize = 10;
+                for (let i = 0; i < jobs.length; i += chunkSize) {
+                    const chunk = jobs.slice(i, i + chunkSize);
+                    let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية (إرسال يدوي):*\n\n" : "";
+                    chunk.forEach((job, index) => {
+                         jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                    });
+                    
+                    if (i + chunkSize >= jobs.length) {
+                        jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                    }
+                    
+                    await client.sendMessage(target, jobsMsg);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                res.send(`✅ Jobs sent successfully to ${target}`);
+            } else {
+                res.status(404).send('Jobs file not found');
+            }
+        } catch (e) {
+            res.status(500).send('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
+app.get('/send-jobs-now', async (req, res) => {
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            if (fs.existsSync(JOBS_FILE)) {
+                const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+                const chunkSize = 10;
+                for (let i = 0; i < jobs.length; i += chunkSize) {
+                    const chunk = jobs.slice(i, i + chunkSize);
+                    let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية (إرسال فوري):*\n\n" : "";
+                    chunk.forEach((job, index) => {
+                         jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                    });
+                    
+                    if (i + chunkSize >= jobs.length) {
+                        jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                    }
+                    
+                    await client.sendMessage(ADMIN_NUMBER, jobsMsg);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                res.send('✅ Jobs sent successfully to admin');
+            } else {
+                res.status(404).send('Jobs file not found');
+            }
+        } catch (e) {
+            res.status(500).send('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
+app.get('/send-jobs-to-past-requests', async (req, res) => {
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            if (!fs.existsSync(JOBS_FILE)) {
+                return res.status(404).send('Jobs file not found');
+            }
+            
+            const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+            const chats = await client.getChats();
+            const personalChats = chats.filter(c => c.id.server === 'c.us');
+            
+            let usersToNotify = new Set();
+            console.log(`Scanning ${personalChats.length} personal chats for past requests...`);
+            
+            for (const chat of personalChats) {
+                const messages = await chat.fetchMessages({ limit: 20 });
+                const hasRequestedJobs = messages.some(m => !m.fromMe && (m.body.trim() === '15' || m.body.trim() === '16'));
+                
+                if (hasRequestedJobs) {
+                    usersToNotify.add(chat.id._serialized);
+                }
+            }
+            
+            console.log(`Found ${usersToNotify.size} users who requested jobs recently.`);
+            
+            let sentCount = 0;
+            for (const userId of usersToNotify) {
+                const chunkSize = 10;
+                for (let i = 0; i < jobs.length; i += chunkSize) {
+                    const chunk = jobs.slice(i, i + chunkSize);
+                    let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية (بناءً على طلبك السابق):*\n\n" : "";
+                    chunk.forEach((job, index) => {
+                         jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                    });
+                    
+                    if (i + chunkSize >= jobs.length) {
+                        jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                    }
+                    
+                    await client.sendMessage(userId, jobsMsg);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+                sentCount++;
+                console.log(`Sent to ${userId}`);
+            }
+            
+            res.send(`✅ Successfully sent jobs to ${sentCount} users who requested it previously.`);
+        } catch (e) {
+            console.error('Error in send-jobs-to-past-requests:', e);
+            res.status(500).send('Error: ' + e.message);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
+app.get('/test-send-jobs', async (req, res) => {
+    const number = req.query.number || '966545888559';
+    const chatId = number.includes('@c.us') ? number : `${number}@c.us`;
+    
+    if (!client) return res.status(503).send('Client not initialized');
+
+    try {
+        if (!fs.existsSync(JOBS_FILE)) {
+            return res.status(404).send('Jobs file not found');
+        }
+        
+        const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+        console.log(`🧪 Testing job send to ${chatId}...`);
+        
+        const chunkSize = 10;
+        for (let i = 0; i < jobs.length; i += chunkSize) {
+            const chunk = jobs.slice(i, i + chunkSize);
+            let jobsMsg = i === 0 ? "🧪 *رسالة اختبار: أحدث 40 وظيفة يومية*\n\n" : "";
+            chunk.forEach((job, index) => {
+                 jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+            });
+            
+            if (i + chunkSize >= jobs.length) {
+                jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+            }
+            
+            await client.sendMessage(chatId, jobsMsg);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        
+        res.send(`✅ Test jobs sent to ${chatId} successfully!`);
+    } catch (e) {
+        console.error('Error in test-send-jobs:', e);
+        res.status(500).send('Error: ' + e.message);
+    }
+});
+
+let pendingBroadcast100 = false;
+
+app.get('/update-and-broadcast-100', async (req, res) => {
+    if (!client) return res.status(503).send('Client not initialized');
+
+    res.send('🔄 Starting job update and broadcast to 100 chats in the background.');
+
+    (async () => {
+        try {
+            await scrapeJobs();
+            pendingBroadcast100 = true;
+            if (status === 'Connected' || status === 'Authenticated') {
+                triggerBroadcast100();
+            }
+        } catch (err) {
+            console.error('Error in update-and-broadcast-100:', err);
+        }
+    })();
+});
+
+app.get('/broadcast-jobs-100', async (req, res) => {
+    if (!client) return res.status(503).send('Client not initialized');
+    triggerBroadcast100();
+    res.send('🚀 Broadcast to 100 chats forced! Check logs.');
+});
+
+let broadcastRetries = 0;
+
+async function triggerBroadcast100() {
+    try {
+        if (!fs.existsSync(JOBS_FILE)) {
+            console.error('Jobs file not found for broadcast');
+            return;
+        }
+
+        if (status !== 'Connected' && status !== 'Authenticated' && !status.includes('Loading')) {
+            console.log('Client not ready (Status: ' + status + ')');
+            return;
+        }
+        
+        console.log('Attempting to fetch chats for broadcast (100)...');
+        const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+        let chats = [];
+
+        if (client.pupPage) {
+            try {
+                console.log('Waiting for WhatsApp interface to stabilize...');
+                await client.pupPage.waitForSelector('#pane-side', { timeout: 30000 }).catch(() => console.log('Pane-side selector timeout, but continuing...'));
+                
+                // Extra wait for store synchronization
+                await new Promise(r => setTimeout(r, 5000));
+
+                const storeStatus = await client.pupPage.evaluate(() => {
+                    const s = window.Store;
+                    return {
+                        hasStore: typeof s !== 'undefined',
+                        hasChat: typeof s?.Chat !== 'undefined',
+                        hasModels: typeof s?.Chat?.models !== 'undefined',
+                        count: s?.Chat?.models?.length || 0
+                    };
+                });
+                
+                console.log('Store status:', JSON.stringify(storeStatus));
+
+                if (!storeStatus.hasModels || storeStatus.count === 0) {
+                    broadcastRetries++;
+                    console.log(`WhatsApp Store models not loaded yet (Retry ${broadcastRetries}).`);
+                    
+                    if (broadcastRetries > 3) {
+                        console.log('Stuck for too long. Reloading page...');
+                        broadcastRetries = 0;
+                        await client.pupPage.reload();
+                        setTimeout(triggerBroadcast100, 30000);
+                        return;
+                    }
+
+                    // Attempt to extract chat IDs from DOM as a secondary fallback
+                    console.log('Attempting to extract chat IDs from DOM side pane...');
+                    const domChatIds = await client.pupPage.evaluate(() => {
+                        const chats = [];
+                        const chatElements = document.querySelectorAll('div[role="listitem"]');
+                        chatElements.forEach(el => {
+                            // This is a bit fragile but might work for some chats
+                            const dataId = el.querySelector('div[data-testid="cell-frame-container"]')?.parentElement?.parentElement?.getAttribute('data-id');
+                            if (dataId && dataId.includes('@c.us')) {
+                                chats.push(dataId);
+                            }
+                        });
+                        return [...new Set(chats)];
+                    });
+
+                    if (domChatIds && domChatIds.length > 0) {
+                        console.log(`✅ DOM Extraction success: Found ${domChatIds.length} chat IDs.`);
+                        chats = domChatIds.map(id => ({ id: { _serialized: id }, sendMessage: (msg) => client.sendMessage(id, msg) }));
+                    } else {
+                        console.log('DOM Extraction also failed. Retrying in 20s...');
+                        setTimeout(triggerBroadcast100, 20000);
+                        return;
+                    }
+                } else {
+                    broadcastRetries = 0;
+                    chats = await client.getChats();
+                }
+            } catch (err) {
+                console.error('Error during chat fetch process:', err.message);
+                setTimeout(triggerBroadcast100, 20000);
+                return;
+            }
+        }
+
+        const targetChats = chats.filter(c => c.id && c.id._serialized && !c.id._serialized.includes('@g.us')).slice(0, 100);
+        
+        if (targetChats.length === 0) {
+            console.log('No personal chats found. Retrying in 20s...');
+            setTimeout(triggerBroadcast100, 20000);
+            return;
+        }
+
+        console.log(`🚀 Starting throttled broadcast of 40 jobs to ${targetChats.length} chats (10 chats per minute)...`);
+        
+        for (let i = 0; i < targetChats.length; i++) {
+            const chat = targetChats[i];
+            
+            // Every 10 chats, wait for 1 minute (except for the very first batch)
+            if (i > 0 && i % 10 === 0) {
+                console.log(`⏳ Reached 10 chats limit. Waiting 1 minute before next batch...`);
+                await new Promise(r => setTimeout(r, 60000));
+            }
+
+            try {
+                const chunkSize = 10;
+                for (let j = 0; j < jobs.length; j += chunkSize) {
+                    const chunk = jobs.slice(j, j + chunkSize);
+                    let msg = j === 0 ? "🆕 *أحدث 40 وظيفة يومية:*\n\n" : "";
+                    chunk.forEach((job, idx) => msg += `*${j+idx+1}. ${job.title}*\n🏢 ${job.company}\n🔗 ${job.link}\n\n`);
+                    if (j + chunkSize >= jobs.length) msg += `\nللمزيد: https://www.ewdifh.com/`;
+                    
+                    await client.sendMessage(chat.id._serialized, msg);
+                    await new Promise(r => setTimeout(r, 2000)); // 2s between message chunks
+                }
+                console.log(`✅ [${i + 1}/${targetChats.length}] Sent to ${chat.name || chat.id.user}`);
+                await new Promise(r => setTimeout(r, 5000)); // 5s between users within a batch
+            } catch (err) {
+                console.error(`Error sending to ${chat.id.user}:`, err.message);
+            }
+        }
+        console.log('🏁 Completed throttled broadcast.');
+        pendingBroadcast100 = false;
+    } catch (e) {
+        console.error('Error in triggerBroadcast100:', e);
+    }
+}
+
 app.listen(port, () => {
     console.log(`Web server running at http://localhost:${port}`);
 });
@@ -496,24 +911,20 @@ const services = [
         requirements: "لتسجيلك في الضمان الاجتماعي المطور، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n5. العنوان الوطني\n6. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 59 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
-        name: "حافز",
-        requirements: "للتسجيل في حافز، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. المؤهل الدراسي وتاريخ التخرج\n4. رقم الجوال\n5. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
-    },
-    {
         name: "حساب المواطن",
         requirements: "للتسجيل في حساب المواطن، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n5. بيانات الدخل للأسرة\n6. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
+    },
+    {
+        name: "حافز",
+        requirements: "للتسجيل في حافز، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. المؤهل الدراسي وتاريخ التخرج\n4. رقم الجوال\n5. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
         name: "ساند",
         requirements: "للتقديم على ساند (دعم التعطل عن العمل)، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. رقم الجوال\n4. قرار الفصل أو الاستقالة\n5. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
-        name: "قياس",
-        requirements: "للتسجيل في اختبارات قياس، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. السجل المدني\n4. تاريخ الميلاد\n5. نوع الاختبار المطلوب\n6. المنطقة والمدينة المفضلة للاختبار\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
-    },
-    {
-        name: "جدارات",
-        requirements: "للتسجيل في منصة جدارات، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. المؤهل العلمي (وثيقة التخرج)\n5. السجل الأكاديمي\n6. الخبرات السابقة (إن وجدت)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
+        name: "قياس - جدارات",
+        requirements: "للتسجيل في اختبارات قياس أو منصة جدارات، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. المؤهل العلمي (وثيقة التخرج)\n5. التخصص\n6. المنطقة والمدينة\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
         name: "تمهير",
@@ -549,19 +960,77 @@ const services = [
     },
     {
         name: "متابعة التوظيف",
-        requirements: "لخدمة متابعة التوظيف، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. السيرة الذاتية الحالية\n5. المؤهل العلمي\n6. المسميات الوظيفية المستهدفة\n7. المدن المفضلة للعمل\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA554800002456086161270"
+        requirements: "لمتابعة طلبات التوظيف الخاصة بك، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. التخصص العلمي\n4. قائمة بالجهات التي تم التقديم عليها (إن وجدت)\n5. رقم الجوال للتواصل\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA554800002456086161270"
+    },
+    {
+        name: "استشارات مهنية",
+        requirements: "للحصول على استشارة مهنية متخصصة، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. المؤهل العلمي\n3. الخبرات العملية الحالية\n4. موضوع الاستشارة أو التحديات التي تواجهك\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA554800002456086161270"
     },
     {
         name: "جديد الوظائف",
-        requirements: "لتفعيل خدمة جديد الوظائف، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n\n💰 **تكلفة الخدمة: مجاناً**\nسيتم إرسال أحدث 20 وظيفة لك يومياً."
+        requirements: "لتفعيل خدمة جديد الوظائف، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n\n💰 **تكلفة الخدمة: مجاناً**\nسيتم إرسال أحدث 40 وظيفة لك يومياً."
     }
 ];
 
-const servicesList = services.map((s, i) => `*${i + 1}* - ${s.name}`).join('\n');
+const servicesList = services.map((s, i) => `*${i + 1}* - ${s.name}`).join('\n') + `\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+
+async function sendJobsToUser(message) {
+    console.log('Sending jobs to user:', message.from);
+    if (fs.existsSync(JOBS_FILE)) {
+        try {
+            const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
+            const chunkSize = 10;
+            for (let i = 0; i < jobs.length; i += chunkSize) {
+                const chunk = jobs.slice(i, i + chunkSize);
+                let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية:*\n\n" : "";
+                chunk.forEach((job, index) => {
+                     jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                });
+                
+                if (i + chunkSize >= jobs.length) {
+                    jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                }
+                
+                await message.reply(jobsMsg);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        } catch (e) {
+            console.error('Error sending jobs:', e);
+            await message.reply('عذراً، حدث خطأ أثناء جلب الوظائف.');
+        }
+    } else {
+        await message.reply('جارٍ جلب أحدث الوظائف، يرجى الانتظار قليلاً...');
+        try {
+            const jobs = await scrapeJobs();
+            if (jobs && jobs.length > 0) {
+                const chunkSize = 10;
+                for (let i = 0; i < jobs.length; i += chunkSize) {
+                    const chunk = jobs.slice(i, i + chunkSize);
+                    let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية:*\n\n" : "";
+                    chunk.forEach((job, index) => {
+                         jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                    });
+                    
+                    if (i + chunkSize >= jobs.length) {
+                        jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                    }
+                    
+                    await message.reply(jobsMsg);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            } else {
+                await message.reply('عذراً، لم يتم العثور على وظائف حالياً.');
+            }
+        } catch (err) {
+            console.error('Error during fallback scrape:', err);
+            await message.reply('عذراً، حدث خطأ أثناء جلب الوظائف.');
+        }
+    }
+}
 
 const broadcastServices = async (count) => {
     console.log(`Starting broadcast to ${count} chats...`);
-    const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`;
+    const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
     
     try {
         const chats = await client.getChats();
@@ -586,25 +1055,45 @@ const initializeClient = () => {
     
     client = new Client({
         authStrategy: new LocalAuth({
-            clientId: 'khaled-bot-new',
-            dataPath: './.auth_new_v5'
+            clientId: "khaled-bot",
+            dataPath: "./.auth_new_v5"
         }),
         puppeteer: {
-            // executablePath: '/home/ubuntu/.cache/puppeteer/chrome/linux-1108766/chrome-linux/chrome',
             headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process',
+                '--disable-gpu'
+            ],
+            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+        },
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+        },
+        authTimeoutMs: 60000,
+        qrMaxRetries: 0,
+        takeoverOnConflict: true,
+        takeoverTimeoutMs: 0,
+        puppeteer: {
+            headless: true,
+            dumpio: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
                 '--disable-gpu',
                 '--disable-extensions',
-                '--disable-background-networking',
-                '--disable-default-apps',
-                '--disable-sync',
-                '--disable-translate',
-                '--mute-audio',
+                '--remote-debugging-port=9222',
+                '--disable-web-security',
                 '--no-first-run',
-                '--safebrowsing-disable-auto-update'
+                '--no-default-browser-check',
+                '--disable-software-rasterizer'
             ]
         }
     });
@@ -622,6 +1111,7 @@ const initializeClient = () => {
     });
 
     client.on('ready', async () => {
+        console.log('--- READY EVENT START ---');
         console.log('✅ Client is ready!');
         status = 'Connected';
         qrCodeData = '';
@@ -635,30 +1125,41 @@ const initializeClient = () => {
         }
         
         // Send a startup message to the user
-        const startupMessage = `*Bot Updated with Service Requirements*
-*تم تحديث البوت بمتطلبات الخدمات*
+        const startupMessage = `*Bot Started & Ready!* ✅
+*البوت الآن يعمل وجاهز لاستقبال الطلبات*
 
 الأوامر المتاحة / Available Commands:
-1. *services* / *خدمات*:
-   - عرض قائمة الخدمات الـ 15
-   - List the 15 services
+1. *services* / *خدمات*: لعرض القائمة
+2. *test* / *تجربة*: للتأكد من العمل
+3. *16*: لعرض الوظائف مباشرة`;
 
-2. *test* / *تجربة*:
-   - للتحقق من أن البوت يعمل
-   - Check if bot is working`;
-
+        console.log('Attempting to send startup message to:', ADMIN_NUMBER);
         client.sendMessage(ADMIN_NUMBER, startupMessage, { sendSeen: false }).then(() => {
             console.log('✅ Startup message sent to ' + ADMIN_NUMBER);
-            // Trigger Broadcast on startup (Temporary)
-            // broadcastServices(100);
         }).catch(err => {
             console.error('❌ Failed to send startup message:', err);
         });
+
+        // Check if there's a pending broadcast
+        if (pendingBroadcast100) {
+            console.log('🚀 Starting queued broadcast to 100 chats...');
+            triggerBroadcast100();
+        }
+        console.log('--- READY EVENT END ---');
     });
 
     client.on('authenticated', () => {
+        console.log('--- AUTHENTICATED EVENT ---');
         console.log('✅ Authenticated (session saved)');
         status = 'Authenticated';
+        
+        // Fallback: if ready doesn't fire in 30s, assume we are connected
+        setTimeout(() => {
+            if (status === 'Authenticated') {
+                console.log('⚠️ Ready event didn\'t fire in 30s, forcing Connected status');
+                status = 'Connected';
+            }
+        }, 30000);
     });
     
     client.on('auth_failure', (msg) => {
@@ -680,283 +1181,120 @@ const initializeClient = () => {
         setTimeout(initializeClient, 5000);
     });
 
-    // Use message_create to detect messages sent by the bot owner (self) as well
-    client.on('message_create', async message => {
-        console.log(`Message received from ${message.from} (Me: ${message.fromMe}): ${message.body}`);
-        
-        const msgBody = message.body.toLowerCase().trim();
+    // Use both message and message_create to ensure coverage
+    client.on('message', handleIncomingMessage);
+    client.on('message_create', handleIncomingMessage);
 
+    async function handleIncomingMessage(message) {
         // Skip group chats entirely (no replies to groups)
         const chat = await message.getChat();
-        if (chat.isGroup) {
-            return;
-        }
+        if (chat.isGroup) return;
+
+        // Clean up input and convert Arabic numbers to English
+        const rawBody = message.body.toLowerCase().trim();
+        const msgBody = rawBody.replace(/[٠-٩]/g, d => d.charCodeAt(0) - 1632).replace(/[۰-۹]/g, d => d.charCodeAt(0) - 1776);
+        
+        // Prevent processing the same message twice if both events fire
+        const messageKey = `${message.id._serialized}_${msgBody}`;
+        if (handleIncomingMessage.lastProcessed === messageKey) return;
+        handleIncomingMessage.lastProcessed = messageKey;
+
+        console.log(`📩 Message from ${message.from} (Me: ${message.fromMe}): ${msgBody}`);
 
         // Prevent bot from replying to its own automated messages (loops)
-        // But ALLOW it to reply to explicit commands from the owner if needed
         if (message.fromMe) {
-            // Allow processing of numbers or specific commands
             if (!isNaN(parseInt(msgBody)) || msgBody === 'services' || msgBody === 'خدمات' || msgBody === 'الخدمات' || msgBody === 'test' || msgBody === 'تجربة') {
-                // Allow fall-through to main logic
-            } else if (msgBody.startsWith('!broadcast')) {
-                 // Allow execution
+                // Allow fall-through
+            } else if (msgBody.startsWith('!')) {
+                // Admin commands
             } else {
-                // Ignore other random text from self to avoid spam
                 return; 
             }
         }
         
-        // --- Special Handling for Specific User (Owner's request) ---
-        // If 966507866885 or 966500797353 or 966544432884 sends ANY message, reply with the website list
-        if (message.from === '966507866885@c.us' || message.from === '966500797353@c.us' || message.from === '966544432884@c.us') {
+        // --- Unified Message Handling ---
+        if (ENABLE_AUTO_REPLY) {
+            let currentState = userStates.get(message.from) || 'INITIAL';
+            
+            // 1. Check if it's a service number (1-16) - HIGHEST PRIORITY
             const potentialServiceIndex = parseInt(msgBody) - 1;
             const isServiceNumber = !isNaN(potentialServiceIndex) && potentialServiceIndex >= 0 && potentialServiceIndex < services.length;
 
             if (isServiceNumber) {
-                // Allow them to pick a service normally
-                userStates.set(message.from, 'SELECTING_SERVICE');
-                // IMPORTANT: Mark as seen so they don't get trapped in the "New User" block below
-                markUserAsSeen(message.from);
-                // Don't return, let it fall through to the service processing logic below
-            } else {
-                await message.reply(`*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`);
-                return;
-            }
-        }
-
-        // --- New User Handling (First Time Contact) ---
-        if (!message.fromMe && !seenUsers.has(message.from)) {
-            // Mark as seen
-            markUserAsSeen(message.from);
-            
-            // Send Services List directly
-            await message.reply(`*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`);
-            
-            // Set state to SELECTING_SERVICE so they can pick a number immediately
-            userStates.set(message.from, 'SELECTING_SERVICE');
-            return;
-        }
-
-        // --- State Machine for Private Users ---
-        if (!message.fromMe && ENABLE_AUTO_REPLY) {
-            let currentState = userStates.get(message.from) || 'INITIAL';
-
-            // Check if user is in COMPLETED state
-            if (currentState === 'COMPLETED') {
-                const potentialServiceIndex = parseInt(msgBody) - 1;
-                const isServiceNumber = !isNaN(potentialServiceIndex) && potentialServiceIndex >= 0 && potentialServiceIndex < services.length;
-
-                // Only wake up for specific commands OR if it looks like a service selection
-                if (msgBody === 'services' || msgBody === 'خدمات' || msgBody === 'الخدمات' || msgBody === 'test' || msgBody === 'تجربة') {
-                    userStates.set(message.from, 'INITIAL');
-                    currentState = 'INITIAL'; // Update local var to allow flow
-                } else if (isServiceNumber) {
-                    // Allow service selection even if completed
-                    userStates.set(message.from, 'SELECTING_SERVICE');
-                    currentState = 'SELECTING_SERVICE';
-                } else {
-                    // Ignore all other messages from completed users
-                    return;
-                }
-            }
-
-            if (currentState === 'INITIAL') {
-                // Check if message is a number immediately to avoid forcing them to say 'hi' first
-                const potentialServiceIndex = parseInt(msgBody) - 1;
-                const isServiceNumber = !isNaN(potentialServiceIndex) && potentialServiceIndex >= 0 && potentialServiceIndex < services.length;
-
-                if (isServiceNumber) {
-                    userStates.set(message.from, 'SELECTING_SERVICE');
-                    currentState = 'SELECTING_SERVICE';
-                    // Allow to fall through to processing
-                } else {
-                    await message.reply(`مرحباً بك في المكتبة الرقمية 📚\n\n*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`);
-                    userStates.set(message.from, 'SELECTING_SERVICE');
-                    return;
-                }
-            }
-
-            if (currentState === 'AWAITING_CHOICE') {
-                // Legacy code block removed to prevent conflict with service selection
-                userStates.set(message.from, 'SELECTING_SERVICE');
-                currentState = 'SELECTING_SERVICE';
-            }
-            
-            if (currentState === 'SELECTING_SERVICE') {
-                // Allow them to pick a service number
-                const serviceIndex = parseInt(msgBody) - 1;
+                console.log(`✅ User ${message.from} selected service ${potentialServiceIndex + 1}`);
+                const selectedService = services[potentialServiceIndex];
                 
-                if (!isNaN(serviceIndex) && serviceIndex >= 0 && serviceIndex < services.length) {
-                    // Valid service selected - Process it
-                    // Logic continues below...
-                } else {
-                    // Invalid input while in service selection
-                    // If it's not a number, assume they are chatting or done.
-                    // Mark as COMPLETED to stop nagging.
-                    userStates.set(message.from, 'COMPLETED');
-                    return;
-                }
-            }
-        }
-        // ---------------------------------------
-
-        if (msgBody === 'services' || msgBody === 'خدمات' || msgBody === 'الخدمات') {
-            message.reply(`*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\nلزيارة الموقع: ${SITE_URL}`);
-        } else if (msgBody.startsWith('!broadcast ')) {
-            if (message.from === ADMIN_NUMBER) {
-                const broadcastMsg = message.body.slice(11);
-                const chats = await client.getChats();
-                const personalChats = chats.filter(c => c.id.server === 'c.us');
-                let count = 0;
-                for (const c of personalChats) {
-                    await c.sendMessage(broadcastMsg);
-                    count++;
-                }
-                message.reply(`✅ Broadcast sent to ${count} chats.`);
-            } else {
-                message.reply('⛔ This command is for admin only.');
-            }
-        } else if (msgBody.startsWith('!broadcast-services ')) {
-            if (message.from === ADMIN_NUMBER) {
-                const parts = msgBody.split(' ');
-                const countLimit = parseInt(parts[1]);
-                
-                if (isNaN(countLimit) || countLimit <= 0) {
-                    message.reply('⚠️ Please specify a valid number. Usage: !broadcast-services <count>\nExample: !broadcast-services 30');
-                    return;
-                }
-
-                const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*يرجى إرسال رقم الخدمة المطلوبة لمعرفة التفاصيل والمتطلبات.*\n\nلزيارة الموقع: ${SITE_URL}`;
-
-                const chats = await client.getChats();
-                // Only personal chats (no groups)
-                const validChats = chats.filter(c => c.id.server === 'c.us');
-                
-                // Slice the top N chats
-                const targetChats = validChats.slice(0, countLimit);
-
-                message.reply(`⏳ Sending services list to last ${targetChats.length} chats...`);
-
-                let sentCount = 0;
-                for (const chat of targetChats) {
-                    await chat.sendMessage(servicesMessage);
-                    sentCount++;
-                    // Small delay to prevent spam flagging
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                }
-                message.reply(`✅ Services list sent to ${sentCount} chats.`);
-            } else {
-                message.reply('⛔ This command is for admin only.');
-            }
-        } else if (msgBody === '!ping' || msgBody === 'ping') {
-            message.reply('pong');
-        } else if (msgBody === 'hello' || msgBody === 'hi' || msgBody === 'test' || msgBody === 'تجربة') {
-            message.reply('Bot is working! / البوت يعمل بنجاح!\nأرسل "خدمات" لعرض القائمة.');
-        } else {
-            // Check if message is a number 1-16
-            const serviceIndex = parseInt(msgBody) - 1;
-            console.log(`Checking service index for input '${msgBody}': ${serviceIndex}`);
-            
-            if (!isNaN(serviceIndex) && serviceIndex >= 0 && serviceIndex < services.length) {
-                const selectedService = services[serviceIndex];
-                console.log(`Selected service: ${selectedService.name}`);
-
-                // 1. Send the standard requirements message first
                 const replyMsg = `✅ *لقد اخترت خدمة: ${selectedService.name}*\n\n📋 *المتطلبات لإتمام الخدمة:*\n${selectedService.requirements}\n\nيرجى تزويدنا بهذه البيانات هنا أو عبر الرابط:\n${SITE_URL}`;
-                await message.reply(replyMsg); // Added await here to ensure order
+                await message.reply(replyMsg);
                 
-                // 2. Mark as COMPLETED
+                markUserAsSeen(message.from);
                 userStates.set(message.from, 'COMPLETED');
 
-                // 3. Special handling for "جديد الوظائف" (Index 15) - Send Jobs Content
-                // Check by name OR index to be safe
-                if (selectedService.name === "جديد الوظائف" || serviceIndex === 15) {
-                    console.log('User selected jobs service. Processing...');
-                    console.log('Jobs file path:', JOBS_FILE);
-                    
-                    if (fs.existsSync(JOBS_FILE)) {
-                        try {
-                            const jobs = JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8'));
-                            console.log(`Read ${jobs.length} jobs from file.`);
-                            
-                            // Split into chunks of 10 to avoid long message issues
-                            const chunkSize = 10;
-                            for (let i = 0; i < jobs.length; i += chunkSize) {
-                                const chunk = jobs.slice(i, i + chunkSize);
-                                let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية:*\n\n" : "";
-                                chunk.forEach((job, index) => {
-                                     jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
-                                });
-                                
-                                if (i + chunkSize >= jobs.length) {
-                                    jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
-                                }
-                                
-                                console.log(`Sending chunk ${i/chunkSize + 1}...`);
-                                await message.reply(jobsMsg);
-                                // Small delay between chunks to ensure order
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                            }
-                        } catch (e) {
-                            console.error('Error reading jobs file or sending message:', e);
-                            message.reply('عذراً، حدث خطأ أثناء جلب الوظائف.');
-                        }
-                    } else {
-                        // If file doesn't exist, try to scrape immediately
-                        message.reply('جارٍ جلب أحدث الوظائف، يرجى الانتظار قليلاً...');
-                        scrapeJobs().then(jobs => {
-                            if (jobs && jobs.length > 0) {
-                                let jobsMsg = "🆕 *أحدث الوظائف اليومية:*\n\n";
-                                jobs.forEach((job, i) => {
-                                     jobsMsg += `*${i+1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
-                                });
-                                jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
-                                message.reply(jobsMsg);
-                            } else {
-                                message.reply('عذراً، لم يتم العثور على وظائف حالياً.');
-                            }
-                        });
-                    }
+                if (selectedService.name === "جديد الوظائف" || potentialServiceIndex === 15) {
+                    await sendJobsToUser(message);
                 }
-
-                // 4. Add to SendPulse CRM
+                
                 try {
                     const contact = await message.getContact();
                     const name = contact.pushname || contact.name || 'WhatsApp User';
-                    const number = contact.number; // e.g., 966545888559
-                    // Create a dummy email for CRM
+                    const number = contact.number || message.from.split('@')[0];
                     const email = `${number}@whatsapp.bot`;
-                    
                     addContact(SENDPULSE_BOOK_ID, email, number, name, selectedService.name);
-                    console.log(`Adding ${name} (${number}) to SendPulse for service: ${selectedService.name}`);
                 } catch (e) {
-                    console.error('Error adding to SendPulse:', e);
+                    console.error('CRM Error:', e.message);
                 }
+                return;
+            }
 
-            } 
-            // Also check if user typed the exact service name
-            else {
-                const foundService = services.find(s => s.name === message.body || s.name.includes(message.body));
-                if (foundService && message.body.length > 3) { // Length check to avoid matching short common words
-                    const replyMsg = `✅ *لقد اخترت خدمة: ${foundService.name}*\n\n📋 *المتطلبات لإتمام الخدمة:*\n${foundService.requirements}\n\nيرجى تزويدنا بهذه البيانات هنا أو عبر الرابط:\n${SITE_URL}`;
-                    message.reply(replyMsg);
-
-                    // Add to SendPulse CRM
-                    try {
-                        const contact = await message.getContact();
-                        const name = contact.pushname || contact.name || 'WhatsApp User';
-                        const number = contact.number;
-                        const email = `${number}@whatsapp.bot`;
-                        
-                        addContact(SENDPULSE_BOOK_ID, email, number, name, foundService.name);
-                        console.log(`Adding ${name} (${number}) to SendPulse for service: ${foundService.name}`);
-                    } catch (e) {
-                        console.error('Error adding to SendPulse:', e);
+            // 2. Admin Commands
+            if (message.from === ADMIN_NUMBER || message.fromMe) {
+                if (msgBody.startsWith('!broadcast ')) {
+                    const broadcastMsg = message.body.slice(11);
+                    const chats = await client.getChats();
+                    const personalChats = chats.filter(c => c.id.server === 'c.us');
+                    let count = 0;
+                    for (const c of personalChats) {
+                        await c.sendMessage(broadcastMsg);
+                        count++;
+                        await new Promise(r => setTimeout(r, 1000));
                     }
+                    message.reply(`✅ Broadcast sent to ${count} chats.`);
+                    return;
+                } else if (msgBody.startsWith('!broadcast-services ')) {
+                    const parts = msgBody.split(' ');
+                    const countLimit = parseInt(parts[1]) || 10;
+                    const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*يرجى إرسال رقم الخدمة المطلوبة لمعرفة التفاصيل والمتطلبات.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+                    const chats = await client.getChats();
+                    const validChats = chats.filter(c => c.id.server === 'c.us');
+                    const targetChats = validChats.slice(0, countLimit);
+                    message.reply(`⏳ Sending services list to ${targetChats.length} chats...`);
+                    for (const chat of targetChats) {
+                        await chat.sendMessage(servicesMessage);
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                    message.reply(`✅ Services list sent.`);
+                    return;
                 }
             }
+
+            // 3. Basic Ping/Test
+            if (msgBody === '!ping' || msgBody === 'ping') {
+                message.reply('pong');
+                return;
+            } else if (msgBody === 'hello' || msgBody === 'hi' || msgBody === 'test' || msgBody === 'تجربة') {
+                message.reply('Bot is working! / البوت يعمل بنجاح!\nأرسل "خدمات" لعرض القائمة.');
+                return;
+            }
+
+            // 4. Default for ANY other message -> Send Menu
+            // (Avoiding infinite loop for messages sent by bot that aren't service numbers)
+            if (!message.fromMe) {
+                await message.reply(`مرحباً بك في المكتبة الرقمية 📚\n\n*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`);
+                userStates.set(message.from, 'SELECTING_SERVICE');
+                markUserAsSeen(message.from);
+            }
         }
-    });
+    }
 
     client.initialize().catch(err => {
         console.error('Initialization error:', err);
@@ -970,6 +1308,29 @@ const initializeClient = () => {
 cron.schedule('0 8 * * *', () => {
     console.log('Running daily job scraper...');
     scrapeJobs();
+});
+
+// Schedule Daily Status Update at 9:00 AM
+cron.schedule('0 9 * * *', async () => {
+    console.log('Posting daily status update...');
+    if (client && status === 'Connected') {
+        try {
+            const statusImagePath = path.join(__dirname, 'daily_status.jpg');
+            if (fs.existsSync(statusImagePath)) {
+                const media = MessageMedia.fromFilePath(statusImagePath);
+                // Caption based on the image content
+                const caption = `وظائف يومية مجانية! 📢\nأكثر من 40 وظيفة يومياً تصلك على جوالك.\n\nفقط أرسل رقم *16* للاشتراك ✅\n\nالمحتوى:\n- وظائف حكومي وشركات\n- تدريب منتهي بالتوظيف\n- دورات مجانية`;
+                await client.sendMessage('status@broadcast', media, { caption: caption });
+                console.log('✅ Daily status image posted successfully');
+            } else {
+                const statusText = `مرحباً بك في المكتبة الرقمية 📚\n\nقائمة الخدمات المتاحة:\n\n${servicesList}\n\nلطلب أي خدمة، يرجى الرد برقم الخدمة.`;
+                await client.sendMessage('status@broadcast', statusText);
+                console.log('✅ Daily status text posted successfully');
+            }
+        } catch (e) {
+            console.error('❌ Error posting status:', e);
+        }
+    }
 });
 
 // Start the client

@@ -1,0 +1,35 @@
+name: WhatsApp Bot Keeper
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 libpango-1.0-0 libpangocairo-1.0-0 libgtk-3-0
+          npm install
+
+      - name: Run Bot
+        env:
+          ADMIN_NUMBER: ${{ secrets.ADMIN_NUMBER }}
+        run: |
+          # Note: WhatsApp Web requires a saved session to run headlessly without QR.
+          # This action will start the bot, but if session is missing, it will wait for QR and timeout.
+          # For 24/7 operation, consider using a VPS or Render.com with the provided Dockerfile.
+          node index.js & 
+          sleep 60
+          kill $!

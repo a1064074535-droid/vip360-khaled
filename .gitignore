@@ -13,6 +13,25 @@ node_modules/
 .wwebjs_cache/
 .auth/
 .auth_new_v5/
+.auth_new_v5_backup_*/
+.auth_temp/
+
+# Backup and Temporary Files
+*.zip
+*.bak
+*.tmp
+FULL_BOT_TRANSFER.zip
+
+# Images and Screenshots
+current_wa_state.png
+debug_screen.png
+*.png
+*.jpg
+!daily_status.jpg
+
+# Directories
+vip360-khaled/
+sanam-preview/
 
 # Logs
 npm-debug.log*
