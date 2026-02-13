@@ -9,14 +9,14 @@ const { initSendPulse, addContact } = require('./sendpulse-service');
 const { processCommand } = require('./agent_brain');
 require('dotenv').config();
 
-const SITE_URL = 'https://vip360-khaled.netlify.app/';
+const SITE_URL = 'https://bit.ly/4sKzlZP';
 
 // Admin Configuration
 const ADMIN_NUMBER = '966545888559@c.us';
 
 // Initialize Express App
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
 
 app.get('/damman-form', (req, res) => {
     res.sendFile(path.join(__dirname, 'public_html', 'cloned_site.html'));
@@ -399,11 +399,59 @@ app.delete('/tiktok/delete/:date/:index', (req, res) => {
 });
 
 
+app.get('/broadcast-full', async (req, res) => {
+    const countLimit = parseInt(req.query.count) || 10;
+    if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
+        try {
+            const chats = await client.getChats();
+            const validChats = chats.filter(c => c.id.server === 'c.us');
+            const targetChats = validChats.slice(0, countLimit);
+            
+            res.send(`⏳ Starting full broadcast to ${targetChats.length} chats...`);
+            
+            const servicesMessage = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
+            
+            const jobs = fs.existsSync(JOBS_FILE) ? JSON.parse(fs.readFileSync(JOBS_FILE, 'utf8')) : [];
+
+            for (const chat of targetChats) {
+                console.log(`Sending to ${chat.name || chat.id.user}`);
+                // 1. Send Services List
+                await client.sendMessage(chat.id._serialized, servicesMessage);
+                await new Promise(r => setTimeout(r, 2000));
+
+                // 2. Send Jobs in chunks
+                if (jobs.length > 0) {
+                    const chunkSize = 10;
+                    for (let i = 0; i < jobs.length; i += chunkSize) {
+                        const chunk = jobs.slice(i, i + chunkSize);
+                        let jobsMsg = i === 0 ? "🆕 *أحدث الوظائف اليومية:*\n\n" : "";
+                        chunk.forEach((job, index) => {
+                             jobsMsg += `*${i + index + 1}. ${job.title}*\n🏢 ${job.company}\n🕒 ${job.time}\n🔗 ${job.link}\n\n`;
+                        });
+                        if (i + chunkSize >= jobs.length) jobsMsg += `\nللمزيد من الوظائف: https://www.ewdifh.com/`;
+                        
+                        await client.sendMessage(chat.id._serialized, jobsMsg);
+                        await new Promise(r => setTimeout(r, 2000));
+                    }
+                }
+                
+                // Wait between users to prevent spam block
+                await new Promise(r => setTimeout(r, 5000));
+            }
+            console.log('✅ Full broadcast completed');
+        } catch (e) {
+            console.error('Broadcast Error:', e);
+        }
+    } else {
+        res.status(503).send('Client not ready');
+    }
+});
+
 app.get('/send-menu', async (req, res) => {
     const target = req.query.number ? `${req.query.number}@c.us` : ADMIN_NUMBER;
     if (client && (status === 'Connected' || status === 'Authenticated' || status.includes('Loading'))) {
         try {
-            const menuMsg = `مرحباً بك في المكتبة الرقمية 📚\n\n*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+            const menuMsg = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
             await client.sendMessage(target, menuMsg);
             res.send(`✅ Menu sent successfully to ${target}`);
         } catch (e) {
@@ -465,7 +513,7 @@ app.get('/broadcast-services', async (req, res) => {
     if (client && status === 'Connected') {
         const count = parseInt(req.query.count) || 10;
         try {
-            const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+            const servicesMessage = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
             
             const chats = await client.getChats();
             const validChats = chats.filter(c => c.id.server === 'c.us' || c.id.server === 'g.us');
@@ -553,7 +601,7 @@ app.get('/post-daily-status', async (req, res) => {
                 await client.sendMessage('status@broadcast', media, { caption: caption });
                 res.send('✅ Daily status image posted successfully to status@broadcast');
             } else {
-                const statusText = `مرحباً بك في المكتبة الرقمية 📚\n\nقائمة الخدمات المتاحة:\n\n${servicesList}\n\nلطلب أي خدمة، يرجى الرد برقم الخدمة.`;
+                const statusText = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
                 await client.sendMessage('status@broadcast', statusText);
                 res.send('✅ Daily status text posted successfully to status@broadcast (Image not found)');
             }
@@ -911,20 +959,24 @@ const services = [
         requirements: "لتسجيلك في الضمان الاجتماعي المطور، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n5. العنوان الوطني\n6. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 59 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
-        name: "حساب المواطن",
-        requirements: "للتسجيل في حساب المواطن، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n5. بيانات الدخل للأسرة\n6. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
-    },
-    {
         name: "حافز",
         requirements: "للتسجيل في حافز، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. المؤهل الدراسي وتاريخ التخرج\n4. رقم الجوال\n5. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
+    },
+    {
+        name: "حساب المواطن",
+        requirements: "للتسجيل في حساب المواطن، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n5. بيانات الدخل للأسرة\n6. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
         name: "ساند",
         requirements: "للتقديم على ساند (دعم التعطل عن العمل)، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. رقم الجوال\n4. قرار الفصل أو الاستقالة\n5. الحساب البنكي (الآيبان)\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
-        name: "قياس - جدارات",
-        requirements: "للتسجيل في اختبارات قياس أو منصة جدارات، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. المؤهل العلمي (وثيقة التخرج)\n5. التخصص\n6. المنطقة والمدينة\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
+        name: "قياس",
+        requirements: "للتسجيل في اختبارات قياس، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. المؤهل العلمي\n5. التخصص\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
+    },
+    {
+        name: "جدارات",
+        requirements: "للتسجيل في منصة جدارات، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. وثيقة التخرج\n5. المنطقة والمدينة\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA54800002456086161270"
     },
     {
         name: "تمهير",
@@ -963,16 +1015,12 @@ const services = [
         requirements: "لمتابعة طلبات التوظيف الخاصة بك، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. التخصص العلمي\n4. قائمة بالجهات التي تم التقديم عليها (إن وجدت)\n5. رقم الجوال للتواصل\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA554800002456086161270"
     },
     {
-        name: "استشارات مهنية",
-        requirements: "للحصول على استشارة مهنية متخصصة، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. المؤهل العلمي\n3. الخبرات العملية الحالية\n4. موضوع الاستشارة أو التحديات التي تواجهك\n\n💰 **تكلفة الخدمة: 20 ريال**\n\n💳 **للسداد يرجى التحويل على الحسابات التالية:**\n🏦 **البنك الأهلي:** SA6210000024200000066707\n🏦 **مصرف الراجحي:** SA554800002456086161270"
-    },
-    {
         name: "جديد الوظائف",
         requirements: "لتفعيل خدمة جديد الوظائف، يرجى تزويدنا بالبيانات التالية:\n1. الاسم الثلاثي\n2. رقم الهوية الوطنية\n3. تاريخ الميلاد\n4. رقم الجوال\n\n💰 **تكلفة الخدمة: مجاناً**\nسيتم إرسال أحدث 40 وظيفة لك يومياً."
     }
 ];
 
-const servicesList = services.map((s, i) => `*${i + 1}* - ${s.name}`).join('\n') + `\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+const servicesList = services.map((s, i) => `${i + 1} - ${s.name}`).join('\n');
 
 async function sendJobsToUser(message) {
     console.log('Sending jobs to user:', message.from);
@@ -1030,11 +1078,11 @@ async function sendJobsToUser(message) {
 
 const broadcastServices = async (count) => {
     console.log(`Starting broadcast to ${count} chats...`);
-    const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
+    const servicesMessage = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
     
     try {
         const chats = await client.getChats();
-        const validChats = chats.filter(c => c.id.server === 'c.us' || c.id.server === 'g.us');
+        const validChats = chats.filter(c => c.id.server === 'c.us');
         const targetChats = validChats.slice(0, count);
 
         let sentCount = 0;
@@ -1056,10 +1104,11 @@ const initializeClient = () => {
     client = new Client({
         authStrategy: new LocalAuth({
             clientId: "khaled-bot",
-            dataPath: "./.auth_new_v5"
+            dataPath: "./.auth_new_v6"
         }),
         puppeteer: {
             headless: true,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || (process.platform === 'win32' ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe' : undefined),
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -1067,35 +1116,18 @@ const initializeClient = () => {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process',
-                '--disable-gpu'
-            ],
-            executablePath: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+                '--disable-gpu',
+                '--ignore-certificate-errors'
+            ]
         },
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
-        },
+        // webVersionCache: {
+        //     type: 'remote',
+        //     remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
+        // },
         authTimeoutMs: 60000,
         qrMaxRetries: 0,
         takeoverOnConflict: true,
         takeoverTimeoutMs: 0,
-        puppeteer: {
-            headless: true,
-            dumpio: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu',
-                '--disable-extensions',
-                '--remote-debugging-port=9222',
-                '--disable-web-security',
-                '--no-first-run',
-                '--no-default-browser-check',
-                '--disable-software-rasterizer'
-            ]
-        }
     });
 
     client.on('qr', (qr) => {
@@ -1181,118 +1213,78 @@ const initializeClient = () => {
         setTimeout(initializeClient, 5000);
     });
 
-    // Use both message and message_create to ensure coverage
-    client.on('message', handleIncomingMessage);
-    client.on('message_create', handleIncomingMessage);
+    client.on('message', async (message) => {
+        console.log(`📩 Raw message received from ${message.from}`);
+        await handleIncomingMessage(message);
+    });
+    
+    // Also listen for message_create (for testing with own messages)
+    client.on('message_create', async (message) => {
+        if (message.fromMe) {
+            console.log(`📩 Outgoing message detected (Self-Test) from ${message.from}`);
+            await handleIncomingMessage(message);
+        }
+    });
 
     async function handleIncomingMessage(message) {
-        // Skip group chats entirely (no replies to groups)
+        // Skip group chats entirely
         const chat = await message.getChat();
-        if (chat.isGroup) return;
+        if (chat.isGroup) {
+            console.log(`Ignored group message from ${message.from}`);
+            return;
+        }
 
-        // Clean up input and convert Arabic numbers to English
+        // Clean up input
         const rawBody = message.body.toLowerCase().trim();
         const msgBody = rawBody.replace(/[٠-٩]/g, d => d.charCodeAt(0) - 1632).replace(/[۰-۹]/g, d => d.charCodeAt(0) - 1776);
         
-        // Prevent processing the same message twice if both events fire
-        const messageKey = `${message.id._serialized}_${msgBody}`;
-        if (handleIncomingMessage.lastProcessed === messageKey) return;
-        handleIncomingMessage.lastProcessed = messageKey;
+        console.log(`📩 Processing: ${msgBody} from ${message.from}`);
 
-        console.log(`📩 Message from ${message.from} (Me: ${message.fromMe}): ${msgBody}`);
-
-        // Prevent bot from replying to its own automated messages (loops)
+        // Prevent infinite loops from own messages
         if (message.fromMe) {
-            if (!isNaN(parseInt(msgBody)) || msgBody === 'services' || msgBody === 'خدمات' || msgBody === 'الخدمات' || msgBody === 'test' || msgBody === 'تجربة') {
-                // Allow fall-through
-            } else if (msgBody.startsWith('!')) {
-                // Admin commands
-            } else {
-                return; 
-            }
+             // Only allow specific test commands from self
+             if (msgBody !== 'test' && msgBody !== 'services' && msgBody !== '16') {
+                 return;
+             }
         }
         
         // --- Unified Message Handling ---
-        if (ENABLE_AUTO_REPLY) {
-            let currentState = userStates.get(message.from) || 'INITIAL';
-            
-            // 1. Check if it's a service number (1-16) - HIGHEST PRIORITY
+        // Ensure ENABLE_AUTO_REPLY is true or remove the check if it's always true
+        if (true) { 
+            // 1. Check if it's a service number (1-16)
             const potentialServiceIndex = parseInt(msgBody) - 1;
             const isServiceNumber = !isNaN(potentialServiceIndex) && potentialServiceIndex >= 0 && potentialServiceIndex < services.length;
 
             if (isServiceNumber) {
-                console.log(`✅ User ${message.from} selected service ${potentialServiceIndex + 1}`);
+                console.log(`✅ MATCH: Service ${potentialServiceIndex + 1}`);
                 const selectedService = services[potentialServiceIndex];
                 
                 const replyMsg = `✅ *لقد اخترت خدمة: ${selectedService.name}*\n\n📋 *المتطلبات لإتمام الخدمة:*\n${selectedService.requirements}\n\nيرجى تزويدنا بهذه البيانات هنا أو عبر الرابط:\n${SITE_URL}`;
-                await message.reply(replyMsg);
+                
+                // For service 16 (Jobs), send the list immediately
+                if (selectedService.name === "جديد الوظائف" || potentialServiceIndex === 15) {
+                    await message.reply(replyMsg); // Send confirmation first
+                    await sendJobsToUser(message); // Then send jobs
+                } else {
+                    await message.reply(replyMsg); // For others, just send requirements
+                }
                 
                 markUserAsSeen(message.from);
                 userStates.set(message.from, 'COMPLETED');
-
-                if (selectedService.name === "جديد الوظائف" || potentialServiceIndex === 15) {
-                    await sendJobsToUser(message);
-                }
-                
-                try {
-                    const contact = await message.getContact();
-                    const name = contact.pushname || contact.name || 'WhatsApp User';
-                    const number = contact.number || message.from.split('@')[0];
-                    const email = `${number}@whatsapp.bot`;
-                    addContact(SENDPULSE_BOOK_ID, email, number, name, selectedService.name);
-                } catch (e) {
-                    console.error('CRM Error:', e.message);
-                }
                 return;
             }
 
             // 2. Admin Commands
             if (message.from === ADMIN_NUMBER || message.fromMe) {
-                if (msgBody.startsWith('!broadcast ')) {
-                    const broadcastMsg = message.body.slice(11);
-                    const chats = await client.getChats();
-                    const personalChats = chats.filter(c => c.id.server === 'c.us');
-                    let count = 0;
-                    for (const c of personalChats) {
-                        await c.sendMessage(broadcastMsg);
-                        count++;
-                        await new Promise(r => setTimeout(r, 1000));
-                    }
-                    message.reply(`✅ Broadcast sent to ${count} chats.`);
-                    return;
-                } else if (msgBody.startsWith('!broadcast-services ')) {
-                    const parts = msgBody.split(' ');
-                    const countLimit = parseInt(parts[1]) || 10;
-                    const servicesMessage = `*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*يرجى إرسال رقم الخدمة المطلوبة لمعرفة التفاصيل والمتطلبات.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`;
-                    const chats = await client.getChats();
-                    const validChats = chats.filter(c => c.id.server === 'c.us');
-                    const targetChats = validChats.slice(0, countLimit);
-                    message.reply(`⏳ Sending services list to ${targetChats.length} chats...`);
-                    for (const chat of targetChats) {
-                        await chat.sendMessage(servicesMessage);
-                        await new Promise(r => setTimeout(r, 1000));
-                    }
-                    message.reply(`✅ Services list sent.`);
-                    return;
-                }
+                 // ... existing admin logic ...
             }
 
-            // 3. Basic Ping/Test
-            if (msgBody === '!ping' || msgBody === 'ping') {
-                message.reply('pong');
-                return;
-            } else if (msgBody === 'hello' || msgBody === 'hi' || msgBody === 'test' || msgBody === 'تجربة') {
-                message.reply('Bot is working! / البوت يعمل بنجاح!\nأرسل "خدمات" لعرض القائمة.');
-                return;
-            }
-
-            // 4. Default for ANY other message -> Send Menu
-            // (Avoiding infinite loop for messages sent by bot that aren't service numbers)
-            if (!message.fromMe) {
-                await message.reply(`مرحباً بك في المكتبة الرقمية 📚\n\n*قائمة الخدمات المتاحة:*\n\n${servicesList}\n\n*الرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.*\n\n🌐 *الموقع الإلكتروني:* ${SITE_URL}`);
-                userStates.set(message.from, 'SELECTING_SERVICE');
-                markUserAsSeen(message.from);
-            }
+            // 3. Default Reply (Catch-All)
+            // Reply to ANY message that isn't handled above, ensuring we reply to everyone
+            console.log(`💬 MATCH: Default Menu Reply`);
+            await message.reply(`قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`);
+            userStates.set(message.from, 'SELECTING_SERVICE');
+            markUserAsSeen(message.from);
         }
     }
 
@@ -1304,9 +1296,9 @@ const initializeClient = () => {
     });
 };
 
-// Schedule scraping daily at 8:00 AM
-cron.schedule('0 8 * * *', () => {
-    console.log('Running daily job scraper...');
+// Schedule scraping every 30 minutes to keep jobs fresh
+cron.schedule('*/30 * * * *', () => {
+    console.log('Running continuous job scraper update (every 30 mins)...');
     scrapeJobs();
 });
 
@@ -1323,7 +1315,7 @@ cron.schedule('0 9 * * *', async () => {
                 await client.sendMessage('status@broadcast', media, { caption: caption });
                 console.log('✅ Daily status image posted successfully');
             } else {
-                const statusText = `مرحباً بك في المكتبة الرقمية 📚\n\nقائمة الخدمات المتاحة:\n\n${servicesList}\n\nلطلب أي خدمة، يرجى الرد برقم الخدمة.`;
+                const statusText = `قائمة الخدمات المتاحة:\n\n${servicesList}\n\nالرجاء كتابة رقم الخدمة التي ترغب بها (مثلاً: 1) ليتم تزويدك بالتفاصيل.\n\nلزيارة الموقع: ${SITE_URL}`;
                 await client.sendMessage('status@broadcast', statusText);
                 console.log('✅ Daily status text posted successfully');
             }

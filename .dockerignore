@@ -1,6 +1,8 @@
 node_modules
-.wwebjs_auth
-.wwebjs_cache
-.auth_new_v3
-.env
 npm-debug.log
+Dockerfile
+.dockerignore
+.git
+.auth_new_v5
+.auth_new_v6
+.auth_new_v7
